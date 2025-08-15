@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>CDP Mapper</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root{
+    --sidebar-width: 320px;
+    --sidebar-min: 200px;
+    --sidebar-max: 640px;
+    --gutter-size: 6px;
+  }
+
+  html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+  .wrap {
+    display: grid;
+    grid-template-columns: var(--sidebar-width) var(--gutter-size) 1fr;
+    grid-template-rows: auto 1fr auto;
+    height: 100%;
+  }
+  .wrap.collapsed { grid-template-columns: 0px 0px 1fr; }
+
+  header, footer { grid-column: 1 / -1; padding: 10px 14px; border-bottom: 1px solid #e5e7eb; }
+  footer { border-top: 1px solid #e5e7eb; border-bottom: 0; }
+  .left { padding: 12px; border-right: 1px solid #e5e7eb; overflow: auto; }
+  .right { position: relative; }
+  #cy { position: absolute; inset: 0; }
+
+  #gutter { cursor: col-resize; background: repeating-linear-gradient(to bottom,#e5e7eb 0,#e5e7eb 2px,transparent 2px,transparent 6px); }
+  .wrap.collapsed #gutter { display: none; }
+  #gutter:hover { background: #e5e7eb; }
+  #gutter:active { background: #d1d5db; }
+  #gutter:focus { outline: 2px solid #2563eb; outline-offset: -2px; }
+
+  .row { margin-bottom: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row label { font-size: 12px; color: #374151; }
+  input[type="text"], select, textarea { width: 100%; min-width: 0; box-sizing: border-box; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
+  textarea { min-height: 140px; resize: vertical; }
+  .row > div { width: 100%; }
+  button { padding: 8px 12px; border: 1px solid #d1d5db; background: #fff; border-radius: 6px; cursor: pointer; }
+  button.primary { background: #111827; color: #fff; border-color: #111827; }
+  .small { font-size: 12px; color: #6b7280; }
+  .bad { color: #b91c1c; }
+  .good { color: #065f46; }
+  .muted { color: #6b7280; }
+  .badge { display: inline-block; padding: 2px 6px; border-radius: 999px; background: #f3f4f6; font-size: 12px; }
+  .grid2 { display: contents }
+  .flex { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 6px; border: 1px solid #d1d5db; background: #fff; font-size: 18px; line-height: 1; cursor: pointer; }
+  .icon-btn:focus { outline: 2px solid #2563eb; outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+  <header class="flex">
+    <button id="toggleSidebar" class="icon-btn" aria-pressed="false" aria-label="Toggle sidebar">☰</button>
+    <div><strong>CDP Mapper</strong></div>
+    <div class="badge" id="pluginStatus">checking...</div>
+    <div id="testStatus" class="muted"></div>
+  </header>
+
+  <div class="left" id="leftPane">
+    <div class="row">
+      <input id="files" type="file" multiple accept=".txt,.log,.cfg,.out,.cdp,.*/*" />
+    </div>
+    <div class="row">
+      <label for="paste">Paste outputs (CDP and REP)</label>
+      <textarea id="paste" placeholder="Paste any mix of 'show cdp neighbors', 'show cdp neighbors detail', and 'show rep topology' from one or more devices"></textarea>
+    </div>
+    <div class="row grid2">
+      <div>
+        <label for="domains">Domains to strip (comma-separated)</label>
+        <input id="domains" type="text" value=".pcs.local,.local,.lan" />
+      </div>
+      <div>
+        <label for="rankdir">Layout</label>
+        <select id="rankdir">
+          <option value="LR">LR (Dagre)</option>
+          <option value="TB">TB (Dagre)</option>
+          <option value="RL">RL (Dagre)</option>
+          <option value="BT">BT (Dagre)</option>
+          <option value="COSE" selected>Force (COSE)</option>
+          <option value="BREADTHFIRST">Breadthfirst</option>
+          <option value="CONCENTRIC">Concentric</option>
+          <option value="CIRCLE">Circle</option>
+          <option value="RING">Ring (full graph)</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <label for="spacing" style="width:auto">Spacing</label>
+      <input id="spacing" type="range" min="0.5" max="3" step="0.1" value="1.0" />
+      <span id="spacingVal" class="small muted">1.0</span>
+    </div>
+    <div class="row grid2">
+      <div class="flex">
+        <input id="showPorts" type="checkbox" checked />
+        <label for="showPorts">Show port labels</label>
+      </div>
+      <div class="flex">
+        <input id="mergeStacks" type="checkbox" />
+        <label for="mergeStacks">Merge stack members</label>
+      </div>
+    </div>
+    <div class="row grid2">
+      <div class="flex">
+        <input id="showIPsUnder" type="checkbox" />
+        <label for="showIPsUnder">Show IPs under hostname</label>
+      </div>
+      <div class="flex">
+        <input id="colorRep" type="checkbox" />
+        <label for="colorRep">Colorize REP segments</label>
+      </div>
+    </div>
+    <div class="row flex">
+      <button id="build" class="primary">Build Topology</button>
+      <button id="fit">Fit</button>
+      <button id="exportPng">Export PNG</button>
+      <button id="runTests">Run tests</button>
+    </div>
+    <div class="row">
+      <input id="search" type="text" placeholder="Search device" />
+    </div>
+    <div class="row small muted">Device name is taken from a hostname line, CLI prompt, or the file name.</div>
+    <div id="messages" class="row small"></div>
+  </div>
+
+  <div id="gutter" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div>
+
+  <div class="right"><div id="cy"></div></div>
+
+  <footer class="small muted">CDP Mapper</footer>
+</div>
+
+<script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+<script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+<script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+<script>
+  const pluginStatus = document.getElementById('pluginStatus');
+  try {
+    if (window.dagre && window.dagre.graphlib && window.dagre.graphlib.Graph && window.cytoscape && window.cytoscapeDagre) {
+      cytoscape.use(cytoscapeDagre);
+      pluginStatus.textContent = 'dagre ok';
+      pluginStatus.className = 'badge';
+    } else {
+      pluginStatus.textContent = 'dagre unavailable';
+      pluginStatus.className = 'badge bad';
+    }
+  } catch (e) {
+    pluginStatus.textContent = 'dagre init error';
+    pluginStatus.className = 'badge bad';
+  }
+
+  const $ = sel => document.querySelector(sel);
+  const wrapEl = $('#wrap');
+  const gutterEl = $('#gutter');
+  const toggleEl = $('#toggleSidebar');
+
+  const filesEl = $('#files');
+  const pasteEl = $('#paste');
+  const domainsEl = $('#domains');
+  const rankdirEl = $('#rankdir');
+  const showPortsEl = $('#showPorts');
+  const mergeStacksEl = $('#mergeStacks');
+  const showIPsUnderEl = $('#showIPsUnder');
+  const colorRepEl = $('#colorRep');
+  const spacingEl = $('#spacing');
+  const spacingValEl = document.getElementById('spacingVal');
+  const buildEl = $('#build');
+  const fitEl = $('#fit');
+  const exportEl = $('#exportPng');
+  const runTestsEl = $('#runTests');
+  const searchEl = $('#search');
+  const messagesEl = $('#messages');
+  const testStatusEl = $('#testStatus');
+  let lastRepInfo = { segments: {}, deviceSegments: {} };
+
+  const LS_W = 'sidebar.width';
+  const LS_C = 'sidebar.collapsed';
+  const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+
+  function getSidebarWidth() {
+    const v = localStorage.getItem(LS_W);
+    return v ? parseInt(v, 10) : parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width')) || 320;
+  }
+  function setSidebarWidth(px, {persist=true, resizeCy=true} = {}) {
+    const w = clamp(px, parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-min')) || 200,
+                        parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-max')) || 640);
+    document.documentElement.style.setProperty('--sidebar-width', w + 'px');
+    if (persist) localStorage.setItem(LS_W, String(w));
+    if (resizeCy) queueMicrotask(() => { try { cy.resize(); } catch {} });
+  }
+  function isCollapsed() { return wrapEl.classList.contains('collapsed'); }
+  function setCollapsed(collapsed) {
+    wrapEl.classList.toggle('collapsed', collapsed);
+    toggleEl.setAttribute('aria-pressed', String(!collapsed));
+    localStorage.setItem(LS_C, collapsed ? '1' : '0');
+    setTimeout(() => { try { cy.resize(); } catch {} }, 0);
+  }
+  function toggleCollapsed() { setCollapsed(!isCollapsed()); }
+
+  (function initSidebar(){
+    const savedW = getSidebarWidth();
+    setSidebarWidth(savedW, {persist:false, resizeCy:false});
+    const savedC = localStorage.getItem(LS_C) === '1';
+    setCollapsed(savedC);
+  })();
+
+  let dragging = false; let pointerId = null;
+  function startDrag(e){ if (isCollapsed()) return; dragging = true; pointerId = e.pointerId; gutterEl.setPointerCapture(pointerId); document.body.style.userSelect = 'none'; }
+  function duringDrag(e){ if (!dragging) return; const left = wrapEl.getBoundingClientRect().left; const px = e.clientX - left; setSidebarWidth(px); }
+  function endDrag(){ if (!dragging) return; dragging = false; document.body.style.userSelect = ''; try { gutterEl.releasePointerCapture(pointerId); } catch {} pointerId = null; }
+  gutterEl.addEventListener('pointerdown', startDrag);
+  window.addEventListener('pointermove', duringDrag);
+  window.addEventListener('pointerup', endDrag);
+  gutterEl.addEventListener('dblclick', () => setSidebarWidth(320));
+  gutterEl.addEventListener('keydown', (e) => { if (e.key === 'ArrowLeft') { setSidebarWidth(getSidebarWidth() - 10); e.preventDefault(); } if (e.key === 'ArrowRight') { setSidebarWidth(getSidebarWidth() + 10); e.preventDefault(); } if (e.key === 'Enter') { toggleCollapsed(); e.preventDefault(); } });
+  toggleEl.addEventListener('click', toggleCollapsed);
+  window.addEventListener('resize', () => { try { cy.resize(); } catch {} });
+
+  let cy = cytoscape({
+    container: document.getElementById('cy'),
+    elements: [],
+    style: [
+      { selector: 'node', style: { 'background-color': '#111827', 'label': 'data(label)', 'color': '#111827', 'text-valign': 'center', 'text-halign': 'center', 'font-size': 12, 'text-wrap': 'wrap', 'text-max-width': 200, 'text-background-opacity': 1, 'text-background-color': '#f9fafb', 'text-background-padding': 6, 'border-width': 2, 'border-color': '#111827', 'width': 28, 'height': 28 } },
+      { selector: 'edge', style: { 'width': 2, 'line-color': '#9ca3af', 'target-arrow-shape': 'none', 'curve-style': 'bezier', 'label': 'data(label)', 'font-size': 10, 'text-background-opacity': 1, 'text-background-color': '#ffffff', 'text-background-padding': 2, 'color': '#111827' } },
+      { selector: 'edge[segColor]', style: { 'line-color': 'data(segColor)', 'width': 4 } },
+      { selector: '.highlight', style: { 'background-color': '#2563eb', 'border-color': '#2563eb' } },
+      { selector: '.dim', style: { 'opacity': 0.25 } }
+    ]
+  });
+
+  function readFiles(files) { const readers = []; for (const f of files) { readers.push(new Promise((resolve) => { const fr = new FileReader(); fr.onload = () => resolve({ name: f.name, text: String(fr.result || '') }); fr.readAsText(f); })); } return Promise.all(readers); }
+
+  function stripDomains(n, domains) { let x = String(n || '').trim(); for (const d of domains) { const dd = d.trim(); if (!dd) continue; if (x.toLowerCase().endsWith(dd.toLowerCase())) { x = x.slice(0, x.length - dd.length); while (x.endsWith('.')) x = x.slice(0, -1); } } return x; }
+  function normalizeName(n, domains) { let x = stripDomains(n, domains); x = x.replace(/\s+/g, ''); return x; }
+  function guessLocalNameFromText(t) { const s = String(t || ''); const m1 = s.match(/^\s*hostname\s+([A-Za-z0-9_.-]+)\s*$/m); if (m1) return m1[1]; const prompts = Array.from(s.matchAll(/^\s*([A-Za-z0-9_.-]+)[#>]\s*$/gm)); if (prompts.length) return prompts[prompts.length - 1][1]; return null; }
+
+  function parseCDPDetail(text) {
+    const s = String(text || '');
+    const out = [];
+    const re = /Device ID:\s*([^\r\n]+)[\s\S]*?Interface:\s*([A-Za-z0-9\/\.\- ]+?),\s*.*?Port ID[^\r\n]*:\s*([A-Za-z0-9\/\.\- ]+)/gi;
+    let m; while ((m = re.exec(s)) !== null) out.push({ remote: m[1].trim(), localPort: m[2].trim(), remotePort: m[3].trim() });
+    return out;
+  }
+
+  function parseCDPSummary(text) {
+    const s = String(text || '');
+    const out = [];
+    const lines = s.split(/\r?\n/);
+    const ifaceRe = /(?:Gi|Gig|Fa|Fas|Te|Ten|Et|Eth|Hu|Fo|Po|Port-?channel|AppGig|Vlan|Serial|mgmt)\s*\d+(?:\/\d+)*/ig;
+    const splitCols = (str) => String(str || '').trim().split(/\s{2,}|\t+/).filter(Boolean);
+    const skip = (ln) => /^(?:Capability\s+Codes:|Device\s+ID\s+Local\s+Intrfce|Total\s+cdp\s+entries|show\s+cdp\s+neighbors)/i.test(ln) || /^[A-Za-z0-9_.-]+[#>]\s*$/.test(ln);
+    for (let i = 0; i < lines.length; i++) {
+      const line = String(lines[i] || '');
+      if (!line.trim() || skip(line)) continue;
+      const inlineIfaces = Array.from(line.matchAll(ifaceRe)).map(m => m[0].trim());
+      const cols = splitCols(line);
+      if (!/^\s/.test(line) && inlineIfaces.length >= 2 && cols.length >= 1) { out.push({ remote: cols[0], localPort: inlineIfaces[0], remotePort: inlineIfaces[inlineIfaces.length - 1] }); continue; }
+      if (!/^\s/.test(line)) {
+        const dev = line.trim();
+        let j = i + 1; while (j < lines.length && !lines[j].trim()) j++;
+        if (j < lines.length && /^\s+/.test(lines[j])) {
+          const ports = Array.from(String(lines[j]).matchAll(ifaceRe)).map(m => m[0].trim());
+          if (ports.length >= 2) { out.push({ remote: dev, localPort: ports[0], remotePort: ports[ports.length - 1] }); i = j; }
+        }
+      }
+    }
+    return out;
+  }
+
+  function extractIPsFromDetail(text) {
+    const s = String(text || '');
+    const out = {};
+    const blockRe = /^\s*Device ID:\s*([^\r\n]+)([\s\S]*?)(?=^\s*Device ID:|^\s*Total cdp entries|$)/gmi;
+    let m;
+    while ((m = blockRe.exec(s)) !== null) {
+      const dev = m[1].trim();
+      const block = m[2] || '';
+      const ips = new Set();
+      for (const mm of block.matchAll(/(?:IP(?:v4)?\s+Address|IP\s+address)\s*:\s*([0-9.]+)/gi)) ips.add(mm[1]);
+      for (const mm of block.matchAll(/Management address(?:es)?:[\s\S]*?(?:IP(?:v4)?\s+Address|IP\s+address)\s*:\s*([0-9.]+)/gi)) ips.add(mm[1]);
+      for (const mm of block.matchAll(/Entry address(?:es)?:[\s\S]*?(?:IP(?:v4)?\s+Address|IP\s+address)\s*:\s*([0-9.]+)/gi)) ips.add(mm[1]);
+
+      //for (const mm of block.matchAll(/IP address\s*:\s*([0-9.]+)/gi)) ips.add(mm[1]);
+      //for (const mm of block.matchAll(/Management address(?:es)?:[\s\S]*?IP address\s*:\s*([0-9.]+)/gi)) ips.add(mm[1]);
+      //for (const mm of block.matchAll(/Entry address(?:es)?:[\s\S]*?IP address\s*:\s*([0-9.]+)/gi)) ips.add(mm[1]);
+      if (ips.size) out[dev] = Array.from(ips);
+    }
+    return out;
+  }
+
+  function parseREPTopology(text, domains) {
+    const s = String(text || '');
+    const lines = s.split(/\r?\n/);
+    const segs = {}; const devSegs = {}; let cur = null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = String(lines[i] || '').trim();
+      if (!line) continue;
+      const mSeg = line.match(/^REP\s+Segment\s+(\S+)/i);
+      if (mSeg) { cur = mSeg[1]; if (!segs[cur]) segs[cur] = new Set(); continue; }
+      if (/^BridgeName/i.test(line) || /^-+/.test(line)) continue;
+      if (!cur) continue;
+      const cols = line.split(/\s{2,}/).filter(Boolean);
+      if (cols.length >= 2) {
+        const dev = normalizeName(cols[0], domains);
+        segs[cur].add(dev);
+        if (!devSegs[dev]) devSegs[dev] = new Set();
+        devSegs[dev].add(cur);
+      }
+    }
+    const segments = {}; Object.keys(segs).forEach(k => segments[k] = Array.from(segs[k]));
+    const deviceSegments = {}; Object.keys(devSegs).forEach(k => deviceSegments[k] = Array.from(devSegs[k]));
+    return { segments, deviceSegments };
+  }
+
+  function deriveDeviceName(fileName) { const n = String(fileName || '').split(/[\\/]/).pop() || ''; const base = n.replace(/\.[^.]+$/, ''); return base || null; }
+
+  function splitSummarySessions(text) {
+    const lines = String(text || '').split(/\r?\n/);
+    const headers = [];
+    for (let i = 0; i < lines.length; i++) { if (/Device\s+ID\s+Local\s+Intrfce/i.test(lines[i])) headers.push(i); }
+    if (!headers.length) return [String(text || '')];
+    const chunks = [];
+    for (let k = 0; k < headers.length; k++) {
+      const start = headers[k]; let end = (k + 1 < headers.length) ? headers[k + 1] - 1 : (lines.length - 1);
+      for (let j = start; j <= end; j++) { if (/^Total\s+cdp\s+entries/i.test(lines[j])) { end = Math.min(end, j + 3); break; } }
+      chunks.push(lines.slice(start, end + 1).join('\n'));
+    }
+    return chunks;
+  }
+
+  function parseOneDocument(text, fileName, domains) {
+    const localFromText = guessLocalNameFromText(text);
+    const localGuess = localFromText || deriveDeviceName(fileName) || 'device';
+    const all = [];
+    const d = parseCDPDetail(text); if (d && d.length) all.push(...d);
+    const s1 = parseCDPSummary(text); if (s1 && s1.length) all.push(...s1);
+    const used = all;
+    return { device: normalizeName(localGuess, domains), neighbors: used.map(x => ({ remote: normalizeName(x.remote, domains), localPort: x.localPort, remotePort: x.remotePort })) };
+  }
+
+  function parseDocumentsFromText(text, domains) { const chunks = splitSummarySessions(text); const docs = []; for (let i = 0; i < chunks.length; i++) docs.push(parseOneDocument(chunks[i], `pasted_${i + 1}.txt`, domains)); return docs; }
+
+  function buildGraph(docs, domains, opts) {
+    const nodes = new Map(); const edges = new Map();
+    for (const d of docs) {
+      nodes.set(d.device, true);
+      for (const n of d.neighbors) {
+        nodes.set(n.remote, true);
+        const a = opts.mergeStacks ? d.device.replace(/[-_]?stack\d+$/i, '') : d.device;
+        const b = opts.mergeStacks ? n.remote.replace(/[-_]?stack\d+$/i, '') : n.remote;
+        const key = a < b ? `${a}||${b}` : `${b}||${a}`;
+        if (!edges.has(key)) edges.set(key, []);
+        edges.get(key).push({ a, b, local: n.localPort, remote: n.remotePort, from: d.device });
+      }
+    }
+    const elements = [];
+    for (const n of nodes.keys()) elements.push({ data: { id: n, label: n } });
+    for (const [k, pairs] of edges.entries()) {
+      const [n1, n2] = k.split('||');
+      const lines = [];
+      for (const p of pairs) {
+        if (p.from === n1) lines.push(`${p.local} ⇄ ${p.remote}`);
+        else if (p.from === n2) lines.push(`${p.remote} ⇄ ${p.local}`);
+        else lines.push(`${p.local} ⇄ ${p.remote}`);
+      }
+      const label = opts.showPorts ? Array.from(new Set(lines)).join('\n') : '';
+      elements.push({ data: { id: `e:${k}`, source: n1, target: n2, label } });
+    }
+    return elements;
+  }
+
+  function colorEdgesByRep(repInfo) {
+    cy.edges().forEach(e => e.removeData('segColor'));
+    if (!repInfo || !colorRepEl || !colorRepEl.checked) return;
+    const palette = ['#ef4444','#3b82f6','#10b981','#f59e0b','#8b5cf6','#ec4899','#14b8a6','#84cc16','#f97316','#22c55e','#0ea5e9','#a855f7'];
+    const ids = Object.keys(repInfo.segments || {});
+    const colorMap = {}; ids.forEach((id, i) => { colorMap[id] = palette[i % palette.length]; });
+    cy.edges().forEach(e => {
+      const a = e.source().id(); const b = e.target().id();
+      const sa = new Set(repInfo.deviceSegments[a] || []);
+      const sb = new Set(repInfo.deviceSegments[b] || []);
+      const common = Array.from(sa).find(x => sb.has(x));
+      if (common) e.data('segColor', colorMap[common]);
+    });
+  }
+  function layoutRepRings(repInfo) {
+    const ids = Object.keys(repInfo.segments || {});
+    if (!ids.length) { layoutGraph(rankdirEl.value); return; }
+    const c = cy.container();
+    const W = c.clientWidth || 1200, H = c.clientHeight || 800;
+    const cols = Math.ceil(Math.sqrt(ids.length)), rows = Math.ceil(ids.length / cols);
+    const cw = W / cols, ch = H / rows;
+    const positions = {};
+    const sf = (typeof getSpacing === 'function') ? getSpacing() : 1;
+
+    function orderRing(devs) {
+      const set = new Set(devs);
+      const adj = new Map();
+      devs.forEach(d => adj.set(d, new Set()));
+      cy.edges().forEach(e => { const a = e.source().id(), b = e.target().id(); if (set.has(a) && set.has(b)) { adj.get(a).add(b); adj.get(b).add(a); } });
+      let start = devs[0], bestDeg = -1;
+      devs.forEach(d => { const deg = (adj.get(d) || new Set()).size; if (deg > bestDeg) { start = d; bestDeg = deg; } });
+      const visited = new Set([start]); const order = [start]; let prev = null, cur = start;
+      while (order.length < devs.length) {
+        const neighbors = Array.from(adj.get(cur) || []);
+        let next = neighbors.find(n => n !== prev && !visited.has(n));
+        if (!next) next = neighbors.find(n => !visited.has(n));
+        if (!next) { const remaining = devs.find(d => !visited.has(d)); if (!remaining) break; next = remaining; }
+        prev = cur; cur = next; visited.add(cur); order.push(cur);
+      }
+      return order;
+    }
+
+    ids.forEach((sid, idx) => {
+      const devs = (repInfo.segments[sid] || []).filter(d => cy.$id(d).length > 0);
+      if (!devs.length) return;
+      const order = orderRing(devs);
+      const cx = (idx % cols) * cw + cw / 2, cy0 = Math.floor(idx / cols) * ch + ch / 2;
+      const maxR = Math.min(cw, ch) / 2 - 10;
+      const minR = 40;
+      const k = Math.max(1, order.length);
+      const desired = (getSpacingPx() * k) / (2 * Math.PI);
+      const r = Math.max(minR, Math.min(maxR, desired));
+      const tau = Math.PI * 2;
+      for (let j = 0; j < k; j++) { const id = order[j]; const ang = -Math.PI/2 + tau * (j / k); positions[id] = { x: cx + r * Math.cos(ang), y: cy0 + r * Math.sin(ang) }; }
+    });
+
+    const rest = cy.nodes().filter(n => !positions[n.id()]);
+    let x0 = 80, y0 = H - 140, step = 140, cc = Math.max(1, Math.floor((W - x0) / step));
+    rest.forEach((n, i) => { const col = i % cc, row = Math.floor(i / cc); positions[n.id()] = { x: x0 + col * step, y: y0 + row * 100 }; });
+    cy.layout({ name: 'preset', positions, fit: false }).run();
+  }
+  function getSpacing(){ const v=parseFloat((spacingEl && spacingEl.value) || '1'); return (Number.isFinite(v) ? Math.max(0.5, Math.min(3, v)) : 1); }
+  function getSpacingPx(){ return 80 * getSpacing(); }
+
+  function layoutGraph(rankdir) {
+    if (cy.elements().length === 0) return;
+    const rd = String(rankdir || 'LR').toUpperCase();
+    const sf = (typeof getSpacing === 'function') ? getSpacing() : 1;
+    if (rd === 'RING' || rd === 'CIRCLE') {
+      const c = cy.container();
+      const W = c.clientWidth || 1200, H = c.clientHeight || 800;
+      const maxR = Math.min(W, H) / 2 - 30;
+      const minR = 40;
+      const k = Math.max(1, cy.nodes().length);
+      const desired = (getSpacingPx() * k) / (2 * Math.PI);
+      const r = Math.max(minR, Math.min(maxR, desired));
+      cy.layout({ name: 'circle', radius: r, padding: 30 }).run();
+      return;
+    }
+    if (rd === 'CONCENTRIC') { cy.layout({ name: 'concentric', startAngle: 3*Math.PI/2, sweep: 2*Math.PI, minNodeSpacing: 30 * sf }).run(); return; }
+    if (rd === 'COSE') { cy.layout({ name: 'cose', animate: false, idealEdgeLength: 50 * sf, nodeRepulsion: 400000 * sf }).run(); return; }
+    if (rd === 'BREADTHFIRST') { cy.layout({ name: 'breadthfirst', spacingFactor: sf, directed: true }).run(); return; }
+    const hasPlugin = !!(window.cytoscapeDagre && window.dagre && window.dagre.graphlib && window.dagre.graphlib.Graph);
+    const layout = hasPlugin ? cy.layout({ name: 'dagre', rankDir: rd, nodeSep: 50 * sf, edgeSep: 10 * sf, rankSep: 50 * sf }) : cy.layout({ name: 'grid' });
+    layout.run();
+  }
+
+  function message(s, good) { messagesEl.textContent = s || ''; messagesEl.className = 'row small ' + (good ? 'good' : 'bad'); }
+
+  function updateNodeLabelsForIPs() {
+    cy.nodes().forEach(n => {
+      const base = n.id();
+      const ips = n.data('ips') || [];
+      const on = !!(showIPsUnderEl && showIPsUnderEl.checked);
+      const lbl = on && ips.length ? base + '\n' + ips.join(', ') : base;
+      n.data('label', lbl);
+    });
+  }
+
+  async function build() {
+    const domains = domainsEl.value.split(',').map(x => x.trim()).filter(Boolean);
+    const pasted = pasteEl.value.trim();
+    const files = filesEl.files;
+    const docs = [];
+    const ipBy = {};
+    const mergeIps = (raw) => { for (const [k, arr] of Object.entries(raw || {})) { const key = normalizeName(k, domains); if (!ipBy[key]) ipBy[key] = new Set(); for (const ip of arr) ipBy[key].add(ip); } };
+    if (files && files.length) {
+      const fileTexts = await readFiles(files);
+      for (const ft of fileTexts) { docs.push(parseOneDocument(ft.text, ft.name, domains)); mergeIps(extractIPsFromDetail(ft.text)); }
+    }
+    if (pasted) {
+      const pastedDocs = parseDocumentsFromText(pasted, domains);
+      for (const d of pastedDocs) docs.push(d);
+      mergeIps(extractIPsFromDetail(pasted));
+    }
+    if (!docs.length) { message('No input', false); return; }
+    const elements = buildGraph(docs, domains, { showPorts: showPortsEl.checked, mergeStacks: mergeStacksEl.checked });
+    cy.elements().remove();
+    cy.add(elements);
+    cy.nodes().forEach(n => { const s = ipBy[n.id()]; n.data('ips', s ? Array.from(s) : []); });
+    updateNodeLabelsForIPs();
+    lastRepInfo = parseREPTopology(pasted, domains);
+    colorEdgesByRep(lastRepInfo);
+    layoutGraph(rankdirEl.value);
+    cy.fit();
+    const segCount = Object.keys(lastRepInfo.segments || {}).length;
+    message(`Documents: ${docs.length}  Devices: ${cy.nodes().length}  Links: ${cy.edges().length}  REP Segments: ${segCount}`, true);
+  }
+
+  buildEl.addEventListener('click', build);
+  if (showIPsUnderEl) showIPsUnderEl.addEventListener('change', updateNodeLabelsForIPs);
+
+  if (colorRepEl) colorRepEl.addEventListener('change', build);
+  if (spacingValEl && spacingEl) spacingValEl.textContent = spacingEl.value;
+  if (spacingEl) {
+    spacingEl.addEventListener('input', () => {
+      if (spacingValEl) spacingValEl.textContent = spacingEl.value;
+      layoutGraph(rankdirEl.value);
+    });
+  } else {
+    layoutGraph(rankdirEl.value);
+  }
+  fitEl.addEventListener('click', () => { cy.fit(); });
+  exportEl.addEventListener('click', () => { const png = cy.png({ full: true, scale: 2 }); const a = document.createElement('a'); a.href = png; a.download = 'cdp-topology.png'; a.click(); });
+
+  searchEl.addEventListener('input', () => {
+    const q = searchEl.value.trim().toLowerCase();
+    cy.elements().removeClass('highlight').removeClass('dim');
+    if (!q) return;
+    const matched = cy.nodes().filter(n => n.id().toLowerCase().includes(q));
+    cy.elements().difference(matched).not(matched.connectedEdges()).addClass('dim');
+    matched.addClass('highlight'); matched.connectedEdges().addClass('highlight');
+  });
+
+  rankdirEl.addEventListener('change', () => { layoutGraph(rankdirEl.value); try { cy.fit(); } catch {} });
+
+
+  function assert(name, cond, results) { results.push({ name, pass: !!cond }); }
+  function summarize(results) { const pass = results.filter(r => r.pass).length; const fail = results.length - pass; testStatusEl.textContent = `Tests: ${pass} passed, ${fail} failed`; testStatusEl.className = fail ? 'bad' : 'good'; if (fail) { const msgs = results.filter(r => !r.pass).map(r => `✗ ${r.name}`).join('\n'); message(msgs, false); } else { message('All tests passed', true); } }
+
+  runTestsEl.addEventListener('click', () => {
+    const results = [];
+
+    const cdpDetail = `Device ID: SwitchB\nInterface: Gig0/1,  Port ID (outgoing port): Gig0/24`;
+    const d1 = parseCDPDetail(cdpDetail);
+    assert('CDP detail parses one neighbor', d1.length === 1, results);
+    assert('CDP detail captures remote name', d1[0] && d1[0].remote === 'SwitchB', results);
+
+    const cdpSummary = `Device ID    Local Intrfce     Holdtme    Capability  Platform  Port ID\nSwitchC      Gi1/0/1                        S I       WS-C3850  Gi1/0/2`;
+    const s2 = parseCDPSummary(cdpSummary);
+    assert('CDP summary parses one line', s2.length === 1, results);
+    assert('CDP summary extracts ports', s2[0] && /Gi1\/0\/1/.test(s2[0].localPort) && /Gi1\/0\/2/.test(s2[0].remotePort), results);
+
+    const repText = `REP Segment 1\nBridgeName       PortName   edge Role\n---------------- ---------- ---- ----\nSwitchA          Fa0/2      Pri  Alt\nSwitchC          Fa1/0/23        Open\nSwitchC          Fa1/0/2         Open\nSwitchD          Fa0/23          Open\nSwitchD          Fa0/2           Open\nSwitchB          Fa1/0/23   Sec  Open`;
+    const r3 = parseREPTopology(repText, ['.local']);
+    assert('REP segments parsed', Object.keys(r3.segments).length === 1, results);
+    assert('REP devices in segment', r3.segments['1'] && r3.segments['1'].length >= 4, results);
+
+    const docs = [ { device: 'A', neighbors: [{ remote: 'B', localPort: 'Gi1/0/1', remotePort: 'Gi1/0/2' }] }, { device: 'B', neighbors: [{ remote: 'A', localPort: 'Gi1/0/2', remotePort: 'Gi1/0/1' }] } ];
+    const elements = buildGraph(docs, [], { showPorts: true, mergeStacks: false });
+    const nodeCount = elements.filter(el => el.data && !el.data.source).length;
+    const edgeCount = elements.filter(el => el.data && el.data.source).length;
+    assert('Graph has 2 nodes', nodeCount === 2, results);
+    assert('Graph has 1 edge', edgeCount === 1, results);
+
+    const d3 = `show cdp neighbors\nCapability Codes: R - Router, T - Trans Bridge, B - Source Route Bridge\n                  S - Switch, H - Host, I - IGMP, r - Repeater, P - Phone, \n                  D - Remote, C - CVTA, M - Two-port Mac Relay \n\nDevice ID        Local Intrfce     Holdtme    Capability  Platform  Port ID\nNWXLFF001.PCS.local\n                 Gig 1/13          177              S I   1783-BMS2 Gig 1/1\nNWXLAB002.PCS.local\n                 Gig 1/25          166              S I   WS-C2960X Gig 1/0/26\nNWXLMA001.PCS.local\n                 Gig 1/14          136              S I   1783-BMS1 Gig 1/2\nNWXLA4S001.PCS.local\n                 Gig 1/17          146             R S I  1783-IMS2 Gig 1/13\nNWXLA4S001.PCS.local\n                 Gig 1/18          138             R S I  1783-IMS2 Gig 1/14\nNWXLK001.PCS.local\n                 Gig 1/16          135              S I   1783-BMS2 Gig 1/1\n\nTotal cdp entries displayed : 6\nNWXLAB001#\nNWXLAB001`;
+    const d4 = `show cdp neighbors\nCapability Codes: R - Router, T - Trans Bridge, B - Source Route Bridge\n                  S - Switch, H - Host, I - IGMP, r - Repeater, P - Phone, \n                  D - Remote, C - CVTA, M - Two-port Mac Relay \n\nDevice ID        Local Intrfce     Holdtme    Capability  Platform  Port ID\nNWXLMA001.PCS.local\n                 Gig 1/1           150              S I   1783-BMS1 Gig 1/1\nNWXLSK001        Fas 1/18          166              S I   1783-BMS1 Fas 1/10\nNWXLM002.PCS.local\n                 Fas 1/17          142              S I   1783-BMS2 Fas 1/17\nNWXLN001.PCS.local\n                 Gig 1/2           161              S I   1783-BMS2 Gig 1/1\n\nTotal cdp entries displayed : 4\nNWXLM001#\nNWXLM001`;
+    const p3 = parseOneDocument(d3, 'p.txt', ['.pcs.local', '.local']);
+    const p4 = parseOneDocument(d4, 'p2.txt', ['.pcs.local', '.local']);
+    assert('summary-two-line: neighbors=6', p3.neighbors.length === 6, results);
+    assert('summary-two-line #2: neighbors=4', p4.neighbors.length === 4, results);
+    const combo = d3 + '\n\n' + d4; const chunks = splitSummarySessions(combo); assert('splitSummarySessions two chunks', chunks.length === 2, results);
+    const docs2 = parseDocumentsFromText(combo, ['.pcs.local', '.local']);
+    const elsCombined = buildGraph(docs2, [], { showPorts: true, mergeStacks: false });
+    const names = docs2.map(d => d.device).sort();
+    assert('multi-doc paste: count', docs2.length === 2, results);
+    assert('multi-doc paste: devices present', names.includes('NWXLAB001') && names.includes('NWXLM001'), results);
+    const edgeAB = elsCombined.find(e => e.data && e.data.id && e.data.id.includes('NWXLM001') && e.data.id.includes('NWXLMA001'));
+    assert('edge NWXLM001↔NWXLMA001 exists', !!edgeAB, results);
+    const edgeLAB = elsCombined.find(e => e.data && e.data.id && e.data.id.includes('NWXLAB001') && e.data.id.includes('NWXLMA001'));
+    assert('edge NWXLAB001↔NWXLMA001 exists', !!edgeLAB, results);
+
+    const repSample = `SwitchA#show rep topology\nREP Segment 1\nBridgeName       PortName   edge Role\n---------------- ---------- ---- ----\nSwitchA          Fa0/2      Pri  Alt \nSwitchC          Fa1/0/23        Open\nSwitchC          Fa1/0/2         Open\nSwitchD          Fa0/23          Open\nSwitchD          Fa0/2           Open\nSwitchB          Fa1/0/23   Sec  Open`;
+    const repInfo = parseREPTopology(repSample, []);
+    assert('rep: one segment', Object.keys(repInfo.segments).length === 1, results);
+    assert('rep: members detected', (repInfo.segments['1'] || []).includes('SwitchA') && (repInfo.segments['1'] || []).includes('SwitchB'), results);
+
+    const detailIPs = `\nDevice ID: NWXLAB001\nIP address: 10.0.0.1\nInterface: Gig 1/17,  Port ID (outgoing port): Gig 1/13\n\nDevice ID: NWXLA4S001\nIP address: 10.0.0.2\nInterface: Gig 1/13,  Port ID (outgoing port): Gig 1/17\nTotal cdp entries displayed : 2`;
+    const ipMap = extractIPsFromDetail(detailIPs);
+    assert('detail IPs parsed', Array.isArray(ipMap['NWXLAB001']) && ipMap['NWXLAB001'][0] === '10.0.0.1', results);
+
+    assert('normalize strips domain', normalizeName('SW1.pcs.local', ['.pcs.local']) === 'SW1', results);
+
+    const ipVar = `Device ID: SWX
+    IPv4 Address: 192.0.2.10
+    Interface: Gi1/0/1,  Port ID (outgoing port): Gi1/0/2`;
+    const ipVarMap = extractIPsFromDetail(ipVar);
+    assert('IPv4 Address variant parsed', Array.isArray(ipVarMap['SWX']) && ipVarMap['SWX'][0] === '192.0.2.10', results);
+
+    summarize(results);
+  });
+</script>
+</body>
+</html>
